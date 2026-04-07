@@ -227,6 +227,12 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
       const scorePayload = await scoreRes.json();
       if (scorePayload?.examSessionId && scorePayload?.scoreSummary) {
+        setSession({
+          sessionId: scorePayload.examSessionId,
+          sections: [],
+          activeSectionOrder: 1,
+          activeQuestionId: null,
+        });
         completeExam({
           scoreSummary: scorePayload.scoreSummary,
           reviewItems: scorePayload.reviewItems ?? [],
@@ -318,8 +324,9 @@ export function ExamPage({ onLogout }: ExamPageProps) {
           if (typeof payload.warningCount === 'number') {
             setWarningCount(payload.warningCount);
           }
-        } else if (!cancelled && isForceSubmitted) {
-          // No active session to resume but force-submitted flag is set, try fetching completed results
+        } else if (!cancelled) {
+          // No active session found. Try loading latest completed result so relogin scenarios
+          // do not bounce users back to biodata when their exam is already finalized.
           await fetchAndShowCompletedResults();
         }
       } catch {

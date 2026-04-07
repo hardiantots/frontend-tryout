@@ -961,6 +961,34 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     });
   };
 
+  const handleDeleteQuestion = (questionId: string) => {
+    void runAction(async () => {
+      if (!questionSubTestId) {
+        throw new Error('Sub-tes belum dipilih.');
+      }
+
+      const ok = window.confirm('Yakin ingin menghapus soal ini? Soal akan disembunyikan dari peserta.');
+      if (!ok) {
+        return;
+      }
+
+      const response = await callApi('/admin/questions/delete', {
+        method: 'POST',
+        body: JSON.stringify({ questionId }),
+      });
+
+      setResultText(JSON.stringify(response, null, 2));
+      setSuccessMessage('Soal berhasil dihapus dari daftar aktif.');
+
+      if (editingQuestionId === questionId) {
+        resetQuestionForm();
+      }
+
+      const nextPage = Math.min(questionPage, questionTotalPages);
+      await loadQuestionBank(questionSubTestId, nextPage);
+    });
+  };
+
   const submitGenerateParticipantToken = (event: FormEvent) => {
     event.preventDefault();
     void runAction(async () => {
@@ -1778,6 +1806,17 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                 >
                   {editingQuestionId ? 'Simpan Perubahan Soal' : 'Simpan Soal'}
                 </button>
+
+                {editingQuestionId ? (
+                  <button
+                    className="w-full rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    type="button"
+                    disabled={loading}
+                    onClick={() => handleDeleteQuestion(editingQuestionId)}
+                  >
+                    Hapus Soal Ini
+                  </button>
+                ) : null}
               </form>
             )}
 
@@ -1807,13 +1846,22 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                         <p className="text-xs font-semibold text-slate-700">
                           Soal {(questionPage - 1) * questionPageSize + index + 1}
                         </p>
-                        <button
-                          type="button"
-                          className="rounded-md bg-teal-700 px-2 py-1 text-xs font-semibold text-white"
-                          onClick={() => startEditQuestion(item)}
-                        >
-                          Edit Soal
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-md bg-teal-700 px-2 py-1 text-xs font-semibold text-white"
+                            onClick={() => startEditQuestion(item)}
+                          >
+                            Edit Soal
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md bg-rose-700 px-2 py-1 text-xs font-semibold text-white"
+                            onClick={() => handleDeleteQuestion(item.id)}
+                          >
+                            Hapus
+                          </button>
+                        </div>
                       </div>
                       {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
                       <p className="mt-1 line-clamp-3 text-slate-800">{item.promptText}</p>

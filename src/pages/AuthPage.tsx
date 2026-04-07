@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { forgotPassword, login, participantTokenLogin, resetPassword, validateParticipantToken } from '../auth/api';
 import { getSession, getSessionRoleLanding } from '../auth/session';
 import { useExamStore } from '../store/examStore';
@@ -25,6 +25,7 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [successModal, setSuccessModal] = useState<{ title: string; description: string; actionLabel: string } | null>(null);
+  const tokenValidationRequestRef = useRef(0);
 
   const backToSignIn = () => {
     setMode('participant-login');
@@ -72,7 +73,18 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
       const me =
         mode === 'admin-login'
           ? await login({ email, password })
-          : await participantTokenLogin({ token: participantToken });
+          : await (async () => {
+              const normalizedToken = participantToken.trim();
+              const validation = await validateParticipantToken({ token: normalizedToken });
+              setParticipantTokenStatus(validation.valid ? 'valid' : 'invalid');
+              setParticipantTokenHint(validation.message);
+
+              if (!validation.valid) {
+                throw new Error(validation.message || 'Token participant tidak valid.');
+              }
+
+              return participantTokenLogin({ token: normalizedToken });
+            })();
 
       // Handle re-login abuse: if exam was auto-completed due to exceeding login limit,
       // mark the exam store so ExamPage goes straight to results.
@@ -112,20 +124,33 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
       return;
     }
 
-    if (trimmed.length < 6) {
+    if (trimmed.length !== 6) {
       setParticipantTokenStatus('invalid');
-      setParticipantTokenHint('Token minimal 6 karakter.');
+      setParticipantTokenHint('Token harus tepat 6 karakter.');
+      return;
+    }
+
+    if (!/^[A-HJ-NP-Z2-9]{6}$/i.test(trimmed)) {
+      setParticipantTokenStatus('invalid');
+      setParticipantTokenHint('Format token tidak valid. Gunakan 6 karakter huruf/angka.');
       return;
     }
 
     setParticipantTokenStatus('checking');
+    const requestId = ++tokenValidationRequestRef.current;
     const timer = window.setTimeout(() => {
       void validateParticipantToken({ token: trimmed })
         .then((result) => {
+          if (requestId !== tokenValidationRequestRef.current) {
+            return;
+          }
           setParticipantTokenStatus(result.valid ? 'valid' : 'invalid');
           setParticipantTokenHint(result.message);
         })
         .catch(() => {
+          if (requestId !== tokenValidationRequestRef.current) {
+            return;
+          }
           setParticipantTokenStatus('invalid');
           setParticipantTokenHint('Tidak dapat memvalidasi token saat ini.');
         });
@@ -237,11 +262,12 @@ export function AuthPage({ onAuthenticated }: AuthPageProps) {
                   className="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
                   placeholder="Masukkan token participant"
                   value={participantToken}
-                  onChange={(e) => setParticipantToken(e.target.value)}
+                  onChange={(e) => setParticipantToken(e.target.value.toUpperCase().replace(/\s+/g, '').slice(0, 6))}
+                  maxLength={6}
                   required
                 />
                 <p className="text-xs text-slate-500">
-                  Gunakan token unik yang diberikan master admin (format pendek 6-7 karakter).
+                  Gunakan token unik 6 karakter yang diberikan master admin (contoh: 3ZFYTL).
                 </p>
                 {participantTokenStatus !== 'idle' ? (
                   <div
