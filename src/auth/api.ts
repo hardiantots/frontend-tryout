@@ -1,6 +1,6 @@
 import { clearSession, getRefreshToken, saveSession, updateTokens, type AuthUserProfile } from './session';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 async function parseJsonSafe(res: Response) {
   try {

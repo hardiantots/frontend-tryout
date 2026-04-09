@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useExamStore } from '../store/examStore';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 type ProctoringEventType = 'TAB_HIDDEN' | 'WINDOW_BLUR' | 'WINDOW_FOCUS';
 
