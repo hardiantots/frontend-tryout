@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProctoring } from '../hooks/useProctoring';
 import { useExamStore } from '../store/examStore';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const EXAM_RUNTIME_KEY = 'exam.runtime.v1';
 
 class ApiError extends Error {
