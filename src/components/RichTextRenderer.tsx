@@ -2,6 +2,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
 
 interface RichTextRendererProps {
@@ -15,7 +16,7 @@ export function RichTextRenderer({ content, className = '' }: RichTextRendererPr
   return (
     <div className={`prose prose-sm max-w-none text-slate-800 ${className}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkBreaks, remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
           // Custom renderers to ensure markdown shapes beautifully without affecting global styles unnecessarily
