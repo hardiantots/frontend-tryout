@@ -1886,9 +1886,9 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                       </div>
                       {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
                       {/* Tampilkan gambar pada preview daftar bank soal apabila ada */}
-                      {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).length ? (
+                      {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).length ? (
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
+                          {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
                             <img
                               key={`${item.id}-img-${imgIndex}`}
                               src={imgUrl}

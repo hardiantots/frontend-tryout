@@ -1290,9 +1290,9 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                     {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
                     
                     {/* Render Image before Question Text */}
-                    {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).length ? (
+                    {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).length ? (
                       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
+                        {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
                           <img
                             key={`${item.attemptId}-img-${imgIndex}`}
                             src={imgUrl}
@@ -1582,9 +1582,9 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                     </p>
                   ) : null}
                   {/* Tampilkan gambar soal terlebih dahulu sesuai request urutan */}
-                  {(activeQuestion.imageUrls ?? (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).length ? (
+                  {(activeQuestion.imageUrls?.length ? activeQuestion.imageUrls : (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).length ? (
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      {(activeQuestion.imageUrls ?? (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).map((imageUrl, imageIndex) => (
+                      {(activeQuestion.imageUrls?.length ? activeQuestion.imageUrls : (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).map((imageUrl, imageIndex) => (
                         <img
                           key={`${activeQuestion.id}-img-${imageIndex}`}
                           src={imageUrl}
