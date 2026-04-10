@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { logout } from '../auth/api';
 import { getSession } from '../auth/session';
+import { RichTextRenderer } from '../components/RichTextRenderer';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -1798,6 +1799,26 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                   onChange={(e) => setQuestionDiscussion(e.target.value)}
                   required
                 />
+                
+                {questionPrompt || questionDiscussion ? (
+                  <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 mt-2">
+                    <p className="text-xs font-semibold text-teal-800 mb-2">Pratinjau Format Teks & Matematika:</p>
+                    <div className="space-y-4">
+                      {questionPrompt ? (
+                        <div className="rounded border border-white bg-white p-2">
+                          <p className="text-xs font-medium text-slate-500 mb-1">Soal:</p>
+                          <RichTextRenderer content={questionPrompt} />
+                        </div>
+                      ) : null}
+                      {questionDiscussion ? (
+                        <div className="rounded border border-white bg-white p-2">
+                          <p className="text-xs font-medium text-slate-500 mb-1">Pembahasan:</p>
+                          <RichTextRenderer content={questionDiscussion} />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <button
                   className="w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -1864,7 +1885,23 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                         </div>
                       </div>
                       {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
-                      <p className="mt-1 line-clamp-3 text-slate-800">{item.promptText}</p>
+                      {/* Tampilkan gambar pada preview daftar bank soal apabila ada */}
+                      {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).length ? (
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
+                            <img
+                              key={`${item.id}-img-${imgIndex}`}
+                              src={imgUrl}
+                              alt={`Preview soal ${imgIndex + 1}`}
+                              className="w-32 rounded-md border border-slate-200 object-cover"
+                              loading="lazy"
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-2">
+                        <RichTextRenderer content={item.promptText} />
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">Format: {item.answerFormat}</p>
                     </article>
                   ))}

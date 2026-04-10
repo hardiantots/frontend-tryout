@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProctoring } from '../hooks/useProctoring';
 import { useExamStore } from '../store/examStore';
+import { RichTextRenderer } from '../components/RichTextRenderer';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 const EXAM_RUNTIME_KEY = 'exam.runtime.v1';
@@ -1287,7 +1288,23 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                       </span>
                     </div>
                     {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
-                    <p className="mt-2 text-sm font-medium text-slate-800">{item.questionText}</p>
+                    
+                    {/* Render Image before Question Text */}
+                    {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).length ? (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
+                          <img
+                            key={`${item.attemptId}-img-${imgIndex}`}
+                            src={imgUrl}
+                            alt={`Soal gambar ${imgIndex + 1}`}
+                            className="w-full rounded-md border border-slate-200 object-cover"
+                            loading="lazy"
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4"><RichTextRenderer content={item.questionText} /></div>
                     <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700 sm:grid-cols-2">
                       <p className="rounded-md bg-slate-50 px-2 py-1">Jawaban Anda: {item.userAnswer}</p>
                       <p className="rounded-md bg-teal-50 px-2 py-1 text-teal-800">Jawaban Benar: {item.correctAnswer}</p>
@@ -1298,7 +1315,11 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                     >
                       {open ? 'Tutup Pembahasan' : 'Lihat Pembahasan'}
                     </button>
-                    {open ? <p className="mt-2 rounded-lg bg-slate-50 p-2 text-sm text-slate-700">{item.discussion}</p> : null}
+                    {open ? (
+                      <div className="mt-2 rounded-lg bg-slate-50 p-2 text-sm text-slate-700">
+                        <RichTextRenderer content={item.discussion ?? ''} />
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
@@ -1560,8 +1581,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                       Format matematika aktif
                     </p>
                   ) : null}
-                  <p className="text-sm font-medium text-slate-800">{activeQuestion.promptText}</p>
-
+                  {/* Tampilkan gambar soal terlebih dahulu sesuai request urutan */}
                   {(activeQuestion.imageUrls ?? (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).length ? (
                     <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {(activeQuestion.imageUrls ?? (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).map((imageUrl, imageIndex) => (
@@ -1575,6 +1595,10 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                       ))}
                     </div>
                   ) : null}
+
+                  <div className="mt-4">
+                    <RichTextRenderer content={activeQuestion.promptText} />
+                  </div>
 
                   {activeQuestion.answerFormat === 'SHORT_INPUT' ? (
                     <input
