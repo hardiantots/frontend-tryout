@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { logout } from '../auth/api';
+import { logout, tryRefreshSession } from '../auth/api';
 import { getSession } from '../auth/session';
 import { RichTextRenderer } from '../components/RichTextRenderer';
+import { showToast, ToastContainer } from '../components/Toast';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -449,20 +450,37 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     try {
       await runner();
     } catch (error) {
-      setResultText(`Error: ${(error as Error).message}`);
+      const msg = (error as Error).message;
+      setResultText(`Error: ${msg}`);
+      showToast('error', msg);
     } finally {
       setLoading(false);
     }
   };
 
   const callApi = async (path: string, init?: RequestInit) => {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: {
-        ...getAuthHeaders(),
-        ...(init?.headers ?? {}),
-      },
-    });
+    const doFetch = async () => {
+      return fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: {
+          ...getAuthHeaders(),
+          ...(init?.headers ?? {}),
+        },
+      });
+    };
+
+    let response = await doFetch();
+
+    // Auto-refresh token on 401 and retry once
+    if (response.status === 401) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        response = await doFetch();
+      } else {
+        showToast('error', 'Sesi telah berakhir. Silakan login kembali.');
+        throw new Error('Sesi telah berakhir. Silakan login kembali.');
+      }
+    }
 
     const payload = await parseJsonSafe(response);
     if (!response.ok) {
@@ -877,7 +895,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       }
 
       setUploadedQuestionImageUrls(uploaded);
-      setSuccessMessage(`${uploaded.length} gambar berhasil diupload ke storage.`);
+      showToast('success', `${uploaded.length} gambar berhasil diupload ke storage.`);
     } finally {
       setUploadingQuestionImages(false);
     }
@@ -955,7 +973,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
         ),
       });
       setResultText(JSON.stringify(response, null, 2));
-      setSuccessMessage(editingQuestionId ? 'Soal berhasil diperbarui.' : 'Soal berhasil disimpan.');
+      showToast('success', editingQuestionId ? 'Soal berhasil diperbarui.' : 'Soal berhasil disimpan.');
       resetQuestionForm();
       setQuestionPage(1);
       await loadQuestionBank(questionSubTestId, 1);
@@ -979,7 +997,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       });
 
       setResultText(JSON.stringify(response, null, 2));
-      setSuccessMessage('Soal berhasil dihapus dari daftar aktif.');
+      showToast('success', 'Soal berhasil dihapus dari daftar aktif.');
 
       if (editingQuestionId === questionId) {
         resetQuestionForm();
@@ -1007,7 +1025,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       setLastGeneratedToken(response?.token ?? null);
       setParticipantTokenLabel('');
       setResultText(JSON.stringify(response, null, 2));
-      setSuccessMessage('Token participant berhasil dibuat. Simpan token ini sekarang.');
+      showToast('success', 'Token participant berhasil dibuat. Simpan token ini sekarang.');
       await loadParticipantTokens();
     });
   };
@@ -1032,7 +1050,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       });
 
       setResultText(JSON.stringify(response, null, 2));
-      setSuccessMessage('Token participant berhasil dinonaktifkan.');
+      showToast('success', 'Token participant berhasil dinonaktifkan.');
       await loadParticipantTokens();
     });
   };
@@ -1055,13 +1073,36 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
 
       setLastGeneratedToken(response?.token ?? null);
       setResultText(JSON.stringify(response, null, 2));
-      setSuccessMessage('Token participant berhasil diregenerate.');
+      showToast('success', 'Token participant berhasil diregenerate.');
+      await loadParticipantTokens();
+    });
+  };
+
+  const handleResetAntiCheat = (tokenKey: string) => {
+    void runAction(async () => {
+      if (!isMasterAdmin) {
+        throw new Error('Hanya master admin yang dapat mereset anti-cheat.');
+      }
+
+      const ok = window.confirm(
+        `Reset anti-cheat untuk token ${tokenKey}?\n\nIni akan:\n• Reset jumlah pelanggaran ke 0\n• Reset login count ke 1\n• Mengembalikan session yang force-submitted ke IN_PROGRESS\n• Reset timer sub-tes aktif\n\nPeserta dapat login kembali dan melanjutkan ujian.`,
+      );
+      if (!ok) return;
+
+      const response = await callApi('/admin/access/reset-anti-cheat', {
+        method: 'POST',
+        body: JSON.stringify({ tokenKey, reason: 'Reset anti-cheat oleh master admin dari panel.' }),
+      });
+
+      setResultText(JSON.stringify(response, null, 2));
+      showToast('success', `Anti-cheat untuk token ${tokenKey} berhasil direset. Peserta dapat melanjutkan ujian.`);
       await loadParticipantTokens();
     });
   };
 
   return (
     <main className="app-shell p-4 sm:p-6">
+      <ToastContainer />
       <header className="sticky top-0 z-40 mb-4 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm backdrop-blur">
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
@@ -1466,6 +1507,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                   className="mt-2 rounded-md bg-indigo-700 px-2 py-1 text-xs font-semibold text-white"
                   onClick={() => {
                     void navigator.clipboard.writeText(lastGeneratedToken);
+                    showToast('info', 'Token disalin ke clipboard.');
                     setSuccessMessage('Token participant berhasil disalin.');
                   }}
                 >
@@ -1528,10 +1570,18 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                       Peserta terbaru: {item.latestSession.participantName || '-'} | {item.latestSession.participantCongregation || '-'} | {item.latestSession.participantSchool || '-'}
                     </p>
                   ) : null}
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="mr-2 rounded-md bg-amber-600 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                      className="rounded-md bg-teal-700 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                      disabled={loading || !isMasterAdmin || Boolean(item.revokedAt)}
+                      onClick={() => handleResetAntiCheat(item.tokenKey)}
+                    >
+                      Reset Anti-Cheat
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-amber-600 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
                       disabled={loading || !isMasterAdmin || Boolean(item.revokedAt)}
                       onClick={() => handleRegenerateParticipantToken(item.tokenKey)}
                     >
@@ -1652,6 +1702,27 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                   />
                   Aktifkan format matematika (soal/jawaban mendukung teks simbol math)
                 </label>
+
+                <details className="rounded-lg border border-sky-200 bg-sky-50/50 p-2 text-xs text-sky-900">
+                  <summary className="cursor-pointer font-semibold">📐 Panduan Notasi Matematika (KaTeX)</summary>
+                  <div className="mt-2 space-y-1 text-[11px] leading-relaxed">
+                    <p><b>Inline:</b> <code>$x^2 + y^2 = z^2$</code></p>
+                    <p><b>Block:</b> <code>$$\frac{'{a}'}{'{b}'}$$</code></p>
+                    <p><b>Pecahan:</b> <code>\frac{'{a}'}{'{b}'}</code> → a/b</p>
+                    <p><b>Akar:</b> <code>\sqrt{'{x}'}</code>, <code>\sqrt[3]{'{x}'}</code></p>
+                    <p><b>Pangkat/Subskrip:</b> <code>x^2</code>, <code>x_1</code></p>
+                    <p><b>Kombinasi:</b> <code>\binom{'{n}'}{'{r}'}</code></p>
+                    <p><b>Sigma:</b> <code>\sum_{'\{i=1\}'}^{'{n}'} x_i</code></p>
+                    <p><b>Integral:</b> <code>\int_0^1 f(x)\,dx</code></p>
+                    <p><b>Limit:</b> <code>\lim_{'\{x \\to 0\}'} f(x)</code></p>
+                    <p><b>Matriks:</b> <code>\begin{'{pmatrix}'} a & b \\ c & d \end{'{pmatrix}'}</code></p>
+                    <p><b>Sudut:</b> <code>90^\circ</code></p>
+                    <p><b>Himpunan:</b> <code>\mathbb{'{R}'}</code>, <code>\mathbb{'{Z}'}</code>, <code>\in</code>, <code>\cup</code>, <code>\cap</code></p>
+                    <p><b>Peluang:</b> <code>P(A \cap B)</code>, <code>P(A|B)</code></p>
+                    <p><b>Tanda:</b> <code>\leq</code>, <code>\geq</code>, <code>\neq</code>, <code>\approx</code>, <code>\pm</code></p>
+                    <p><b>Greek:</b> <code>\alpha</code>, <code>\beta</code>, <code>\theta</code>, <code>\pi</code>, <code>\sigma</code></p>
+                  </div>
+                </details>
 
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-semibold text-slate-700">Upload Gambar Soal (maksimal 3 file)</p>

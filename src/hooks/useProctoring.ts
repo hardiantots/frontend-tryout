@@ -31,6 +31,19 @@ function getRequestHeaders(): HeadersInit {
   };
 }
 
+function isNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message.toLowerCase().includes('fetch')) {
+    return true;
+  }
+  if (error instanceof TypeError && error.message.toLowerCase().includes('network')) {
+    return true;
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+  return false;
+}
+
 async function recordEvent(sessionId: string, eventType: ProctoringEventType) {
   const response = await fetch(`${API_BASE}/exam/proctoring-event`, {
     method: 'POST',
@@ -55,7 +68,7 @@ async function recordEvent(sessionId: string, eventType: ProctoringEventType) {
   };
 }
 
-export function useProctoring({ sessionId, maxWarnings = 3, enabled = true, onForceSubmit }: UseProctoringParams) {
+export function useProctoring({ sessionId, maxWarnings = 6, enabled = true, onForceSubmit }: UseProctoringParams) {
   const warningCount = useExamStore((s) => s.warningCount);
   const incrementWarning = useExamStore((s) => s.incrementWarning);
   const setWarningCount = useExamStore((s) => s.setWarningCount);
@@ -88,8 +101,19 @@ export function useProctoring({ sessionId, maxWarnings = 3, enabled = true, onFo
         nextWarnings = result.warningCount;
         shouldForceSubmitFromServer = result.shouldForceSubmit;
         setWarningCount(nextWarnings);
-      } catch {
-        // Fallback for offline/dev mode: continue local counting.
+      } catch (error) {
+        // If it's a network error (disconnected, timeout), DO NOT increment warning
+        if (isNetworkError(error)) {
+          // Show a network-specific dialog instead of a violation warning
+          if (eventType !== 'WINDOW_FOCUS') {
+            setDialog({
+              title: 'Koneksi Terputus',
+              message: 'Koneksi internet terdeteksi bermasalah. Peringatan anti-cheat tidak dihitung karena masalah jaringan. Pastikan koneksi stabil.',
+            });
+          }
+          return; // Don't count this as a violation
+        }
+        // For non-network errors (e.g. server returned 4xx/5xx), continue local counting
         if (eventType !== 'WINDOW_FOCUS') {
           nextWarnings = incrementWarning();
         }
