@@ -230,6 +230,10 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   const [resultText, setResultText] = useState('Belum ada aksi.');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [reorderList, setReorderList] = useState<Array<{ id: string; promptText: string; materialTopic?: string | null }>>([]);
+  const [reorderDirty, setReorderDirty] = useState(false);
+  const [reorderSaving, setReorderSaving] = useState(false);
 
   const roleModes = useMemo(() => {
     const normalized = roles.map((role) => role.toUpperCase());
@@ -345,6 +349,29 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     setQuestionBankItems((payload?.items ?? []) as QuestionBankItem[]);
     setQuestionTotalItems(Number(payload?.pagination?.total ?? 0));
     setQuestionTotalPages(Math.max(1, Number(payload?.pagination?.totalPages ?? 1)));
+  };
+
+  const loadAllQuestionsForReorder = async (subTestId: string) => {
+    const pageSize = 200;
+    const firstPayload = await callApi(
+      `/admin/questions?subTestId=${encodeURIComponent(subTestId)}&page=1&pageSize=${pageSize}`,
+    );
+
+    const totalPages = Math.max(1, Number(firstPayload?.pagination?.totalPages ?? 1));
+    const allItems = [
+      ...((firstPayload?.items ?? []) as QuestionBankItem[]),
+    ];
+
+    if (totalPages > 1) {
+      for (let page = 2; page <= totalPages; page += 1) {
+        const nextPayload = await callApi(
+          `/admin/questions?subTestId=${encodeURIComponent(subTestId)}&page=${page}&pageSize=${pageSize}`,
+        );
+        allItems.push(...((nextPayload?.items ?? []) as QuestionBankItem[]));
+      }
+    }
+
+    return allItems;
   };
 
   const resetQuestionForm = () => {
@@ -1006,6 +1033,66 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       const nextPage = Math.min(questionPage, questionTotalPages);
       await loadQuestionBank(questionSubTestId, nextPage);
     });
+  };
+
+  const enterReorderMode = () => {
+    void runAction(async () => {
+      if (!questionSubTestId) {
+        throw new Error('Pilih sub-tes terlebih dahulu.');
+      }
+
+      const items = await loadAllQuestionsForReorder(questionSubTestId);
+      setReorderList(items.map((item) => ({ id: item.id, promptText: item.promptText, materialTopic: item.materialTopic })));
+      setReorderMode(true);
+      setReorderDirty(false);
+    });
+  };
+
+  const exitReorderMode = () => {
+    setReorderMode(false);
+    setReorderList([]);
+    setReorderDirty(false);
+  };
+
+  const moveReorderItem = (index: number, direction: 'up' | 'down') => {
+    setReorderList((prev) => {
+      const next = [...prev];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= next.length) {
+        return prev;
+      }
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+    setReorderDirty(true);
+  };
+
+  const saveReorder = async () => {
+    if (!questionSubTestId || !reorderList.length) {
+      return;
+    }
+
+    setReorderSaving(true);
+    try {
+      const payload = await callApi('/admin/questions/reorder', {
+        method: 'POST',
+        body: JSON.stringify({
+          subTestId: questionSubTestId,
+          questionIds: reorderList.map((item) => item.id),
+        }),
+      });
+      setResultText(JSON.stringify(payload, null, 2));
+      showToast('success', 'Urutan soal berhasil disimpan.');
+      setReorderDirty(false);
+      setReorderMode(false);
+      setReorderList([]);
+      setQuestionPage(1);
+      await loadQuestionBank(questionSubTestId, 1);
+    } catch (error) {
+      showToast('error', (error as Error).message);
+    } finally {
+      setReorderSaving(false);
+    }
   };
 
   const submitGenerateParticipantToken = (event: FormEvent) => {
@@ -1915,96 +2002,191 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
             {canAuthorQuestions ? (
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-800">Daftar Soal Sub-Tes Terpilih</h3>
-                  <button
-                    type="button"
-                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
-                    onClick={() => {
-                      void runAction(async () => {
-                        await loadQuestionBank(questionSubTestId, questionPage);
-                        setResultText('Daftar soal berhasil diperbarui.');
-                      });
-                    }}
-                    disabled={loading || !questionSubTestId}
-                  >
-                    Muat Ulang Daftar
-                  </button>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">Daftar Soal Sub-Tes Terpilih</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {reorderMode
+                        ? 'Mode ubah urutan aktif — gunakan tombol ▲▼ untuk menggeser soal.'
+                        : 'Urutan sinkron dengan tampilan peserta. Klik "Ubah Urutan" untuk mengatur ulang.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!reorderMode ? (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                          onClick={() => {
+                            void runAction(async () => {
+                              await loadQuestionBank(questionSubTestId, questionPage);
+                              setResultText('Daftar soal berhasil diperbarui.');
+                            });
+                          }}
+                          disabled={loading || !questionSubTestId}
+                        >
+                          Muat Ulang
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-indigo-400 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700"
+                          onClick={enterReorderMode}
+                          disabled={loading || !questionSubTestId || questionTotalItems < 2}
+                        >
+                          ↕ Ubah Urutan
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                          onClick={exitReorderMode}
+                          disabled={reorderSaving}
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md bg-indigo-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                          onClick={() => { void saveReorder(); }}
+                          disabled={!reorderDirty || reorderSaving}
+                        >
+                          {reorderSaving ? 'Menyimpan…' : '✓ Simpan Urutan'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  {questionBankItems.map((item, index) => (
-                    <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-slate-700">
-                          Soal {(questionPage - 1) * questionPageSize + index + 1}
+                {/* ===== REORDER MODE ===== */}
+                {reorderMode ? (
+                  <div className="space-y-1">
+                    {reorderList.map((item, index) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-white p-2 text-sm"
+                      >
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            className="rounded px-1 py-0.5 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                            onClick={() => moveReorderItem(index, 'up')}
+                            disabled={index === 0 || reorderSaving}
+                            title="Pindah ke atas"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded px-1 py-0.5 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+                            onClick={() => moveReorderItem(index, 'down')}
+                            disabled={index === reorderList.length - 1 || reorderSaving}
+                            title="Pindah ke bawah"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-700 text-[10px] font-bold text-white">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs text-slate-800">{item.promptText}</p>
+                          {item.materialTopic ? (
+                            <p className="truncate text-[10px] text-slate-400">Materi: {item.materialTopic}</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                    {!reorderList.length ? (
+                      <p className="text-xs text-slate-600">Belum ada soal pada sub-tes ini.</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  /* ===== NORMAL MODE (Paginated) ===== */
+                  <>
+                    <div className="space-y-2">
+                      {questionBankItems.map((item, index) => (
+                        <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-white">
+                                {(questionPage - 1) * questionPageSize + index + 1}
+                              </span>
+                              <p className="text-xs font-semibold text-slate-700">
+                                Soal {(questionPage - 1) * questionPageSize + index + 1}
+                              </p>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(item.createdAt).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-md bg-teal-700 px-2 py-1 text-xs font-semibold text-white"
+                                onClick={() => startEditQuestion(item)}
+                              >
+                                Edit Soal
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-md bg-rose-700 px-2 py-1 text-xs font-semibold text-white"
+                                onClick={() => handleDeleteQuestion(item.id)}
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+                          {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
+                          {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).length ? (
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
+                                <img
+                                  key={`${item.id}-img-${imgIndex}`}
+                                  src={imgUrl}
+                                  alt={`Preview soal ${imgIndex + 1}`}
+                                  className="w-32 rounded-md border border-slate-200 object-cover"
+                                  loading="lazy"
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-2">
+                            <RichTextRenderer content={item.promptText} />
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">Format: {item.answerFormat}</p>
+                        </article>
+                      ))}
+
+                      {!questionBankItems.length ? <p className="text-xs text-slate-600">Belum ada soal pada sub-tes ini.</p> : null}
+                    </div>
+
+                    {questionTotalItems > 0 ? (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2">
+                        <p className="text-xs text-slate-600">
+                          Halaman {questionPage} dari {questionTotalPages} ({questionTotalItems} soal)
                         </p>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            className="rounded-md bg-teal-700 px-2 py-1 text-xs font-semibold text-white"
-                            onClick={() => startEditQuestion(item)}
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 disabled:opacity-50"
+                            disabled={questionPage <= 1 || loading}
+                            onClick={() => setQuestionPage((prev) => Math.max(1, prev - 1))}
                           >
-                            Edit Soal
+                            Sebelumnya
                           </button>
                           <button
                             type="button"
-                            className="rounded-md bg-rose-700 px-2 py-1 text-xs font-semibold text-white"
-                            onClick={() => handleDeleteQuestion(item.id)}
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 disabled:opacity-50"
+                            disabled={questionPage >= questionTotalPages || loading}
+                            onClick={() => setQuestionPage((prev) => Math.min(questionTotalPages, prev + 1))}
                           >
-                            Hapus
+                            Berikutnya
                           </button>
                         </div>
                       </div>
-                      {item.materialTopic ? <p className="mt-1 text-xs text-slate-600">Materi: {item.materialTopic}</p> : null}
-                      {/* Tampilkan gambar pada preview daftar bank soal apabila ada */}
-                      {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).length ? (
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
-                            <img
-                              key={`${item.id}-img-${imgIndex}`}
-                              src={imgUrl}
-                              alt={`Preview soal ${imgIndex + 1}`}
-                              className="w-32 rounded-md border border-slate-200 object-cover"
-                              loading="lazy"
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="mt-2">
-                        <RichTextRenderer content={item.promptText} />
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">Format: {item.answerFormat}</p>
-                    </article>
-                  ))}
-
-                  {!questionBankItems.length ? <p className="text-xs text-slate-600">Belum ada soal pada sub-tes ini.</p> : null}
-                </div>
-
-                {questionTotalItems > 0 ? (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2">
-                    <p className="text-xs text-slate-600">
-                      Halaman {questionPage} dari {questionTotalPages} ({questionTotalItems} soal)
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 disabled:opacity-50"
-                        disabled={questionPage <= 1 || loading}
-                        onClick={() => setQuestionPage((prev) => Math.max(1, prev - 1))}
-                      >
-                        Sebelumnya
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 disabled:opacity-50"
-                        disabled={questionPage >= questionTotalPages || loading}
-                        onClick={() => setQuestionPage((prev) => Math.min(questionTotalPages, prev + 1))}
-                      >
-                        Berikutnya
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : null}
           </section>
