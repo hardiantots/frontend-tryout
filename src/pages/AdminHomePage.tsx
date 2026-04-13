@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { logout, tryRefreshSession } from '../auth/api';
 import { getSession } from '../auth/session';
 import { RichTextRenderer } from '../components/RichTextRenderer';
@@ -204,6 +204,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   const [questionImageFiles, setQuestionImageFiles] = useState<File[]>([]);
   const [uploadedQuestionImageUrls, setUploadedQuestionImageUrls] = useState<string[]>([]);
   const [uploadingQuestionImages, setUploadingQuestionImages] = useState(false);
+  const questionImageInputRef = useRef<HTMLInputElement | null>(null);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [questionBankItems, setQuestionBankItems] = useState<QuestionBankItem[]>([]);
   const [questionPage, setQuestionPage] = useState(1);
@@ -380,6 +381,9 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     setQuestionMaterialTopic('');
     setQuestionImageFiles([]);
     setUploadedQuestionImageUrls([]);
+    if (questionImageInputRef.current) {
+      questionImageInputRef.current.value = '';
+    }
     setQuestionIsMathContent(false);
     setQuestionDiscussion('');
     setQuestionFormat('MULTIPLE_CHOICE_SINGLE');
@@ -406,6 +410,9 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     setQuestionMaterialTopic(item.materialTopic ?? '');
     setUploadedQuestionImageUrls(item.imageUrls ?? (item.imageUrl ? [item.imageUrl] : []));
     setQuestionImageFiles([]);
+    if (questionImageInputRef.current) {
+      questionImageInputRef.current.value = '';
+    }
     setQuestionIsMathContent(Boolean(item.isMathContent));
     setQuestionDiscussion(item.discussion ?? '');
     setQuestionFormat(item.answerFormat);
@@ -875,7 +882,11 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   };
 
   const onSelectQuestionImages = (files: FileList | null) => {
-    const picked = Array.from(files ?? []).slice(0, 3);
+    const remainingSlots = Math.max(0, 3 - uploadedQuestionImageUrls.length);
+    const picked = Array.from(files ?? []).slice(0, remainingSlots);
+    if ((files?.length ?? 0) > remainingSlots) {
+      showToast('info', `Maksimal 3 gambar per soal. Slot tersisa: ${remainingSlots}.`);
+    }
     setQuestionImageFiles(picked);
   };
 
@@ -892,9 +903,13 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       throw new Error('Maksimal 3 gambar per soal.');
     }
 
+    if (uploadedQuestionImageUrls.length + questionImageFiles.length > 3) {
+      throw new Error('Total gambar per soal tidak boleh lebih dari 3 file.');
+    }
+
     setUploadingQuestionImages(true);
     try {
-      const uploaded: string[] = [];
+      const uploaded = [...uploadedQuestionImageUrls];
       for (const file of questionImageFiles) {
         const signPayload = await callApi('/admin/questions/upload-url', {
           method: 'POST',
@@ -922,10 +937,18 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
       }
 
       setUploadedQuestionImageUrls(uploaded);
+      setQuestionImageFiles([]);
+      if (questionImageInputRef.current) {
+        questionImageInputRef.current.value = '';
+      }
       showToast('success', `${uploaded.length} gambar berhasil diupload ke storage.`);
     } finally {
       setUploadingQuestionImages(false);
     }
+  };
+
+  const removeUploadedQuestionImage = (url: string) => {
+    setUploadedQuestionImageUrls((prev) => prev.filter((item) => item !== url));
   };
 
   const submitCreateQuestion = (event: FormEvent) => {
@@ -1814,6 +1837,7 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-semibold text-slate-700">Upload Gambar Soal (maksimal 3 file)</p>
                   <input
+                    ref={questionImageInputRef}
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     multiple
@@ -1821,10 +1845,14 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                     onChange={(e) => onSelectQuestionImages(e.target.files)}
                   />
 
+                  <p className="mt-2 text-xs text-slate-600">
+                    Terupload: {uploadedQuestionImageUrls.length}/3 · Siap diupload: {questionImageFiles.length}
+                  </p>
+
                   <button
                     type="button"
                     className="mt-2 rounded-lg bg-indigo-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    disabled={loading || uploadingQuestionImages || !questionImageFiles.length}
+                    disabled={loading || uploadingQuestionImages || !questionImageFiles.length || uploadedQuestionImageUrls.length >= 3}
                     onClick={() => {
                       void runAction(async () => {
                         await uploadQuestionImagesToS3();
@@ -1837,9 +1865,17 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
                   {uploadedQuestionImageUrls.length ? (
                     <div className="mt-2 space-y-1">
                       {uploadedQuestionImageUrls.map((url) => (
-                        <p key={url} className="break-all text-xs text-slate-600">
-                          {url}
-                        </p>
+                        <div key={url} className="flex items-start justify-between gap-2 rounded border border-slate-200 bg-white p-2">
+                          <p className="break-all text-xs text-slate-600">{url}</p>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700"
+                            onClick={() => removeUploadedQuestionImage(url)}
+                            disabled={loading || uploadingQuestionImages}
+                          >
+                            Hapus
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : null}
