@@ -63,7 +63,6 @@ function normalizeInsightText(raw: string): string {
     .replace(/\\([*_`#\-])/g, '$1')
     .replace(/^[-*]\s+/gm, '• ')
     .replace(/^\d+[.)]\s+/gm, '• ')
-    .replace(/^[^\p{L}\p{N}(•\-)]*/gmu, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -1194,6 +1193,16 @@ export function ExamPage({ onLogout }: ExamPageProps) {
   if (isCompleted && scoreSummary) {
     return (
       <main className="app-shell px-2 py-3 sm:px-3 md:px-4 lg:px-6 lg:py-6">
+        {confirmModal ? (
+          <ConfirmModal
+            title={confirmModal.title}
+            message={confirmModal.message}
+            variant={confirmModal.variant}
+            confirmLabel={confirmModal.confirmLabel}
+            onConfirm={confirmModal.onConfirm}
+            onCancel={closeConfirmModal}
+          />
+        ) : null}
         <header className="sticky top-0 z-40 mb-3 border border-slate-200/80 bg-white/90 p-3 shadow-sm backdrop-blur sm:rounded-2xl">
           <div className="flex w-full items-center justify-between gap-2">
             <div className="flex items-center gap-3">
@@ -1346,9 +1355,15 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                     ) : null}
 
                     <div className="mt-4"><RichTextRenderer content={item.questionText} /></div>
-                    <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700 sm:grid-cols-2">
-                      <p className="rounded-md bg-slate-50 px-2 py-1">Jawaban Anda: {item.userAnswer}</p>
-                      <p className="rounded-md bg-teal-50 px-2 py-1 text-teal-800">Jawaban Benar: {item.correctAnswer}</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-slate-700 sm:grid-cols-2">
+                      <div className="rounded-md bg-slate-50 px-2 py-2 flex flex-wrap gap-1">
+                        <span className="font-semiboldshrink-0">Jawaban Anda:</span>
+                        <RichTextRenderer content={item.userAnswer} className="inline-block" />
+                      </div>
+                      <div className="rounded-md bg-teal-50 px-2 py-2 text-teal-800 flex flex-wrap gap-1">
+                        <span className="font-semibold shrink-0">Jawaban Benar:</span>
+                        <RichTextRenderer content={item.correctAnswer} className="inline-block" />
+                      </div>
                     </div>
                     <button
                       className="mt-2 touch-target rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white"
@@ -1686,7 +1701,12 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                             onClick={() => void onSelectOption(activeQuestion.id, opt)}
                             disabled={isBlocked}
                           >
-                            {opt}. {activeQuestion.options?.[opt] ?? '-'}
+                            <div className="flex gap-2">
+                              <span className="font-semibold shrink-0">{opt}.</span>
+                              <div className="flex-1 w-0">
+                                <RichTextRenderer content={activeQuestion.options?.[opt] ?? '-'} className="m-0" />
+                              </div>
+                            </div>
                           </button>
                         );
                       })}
