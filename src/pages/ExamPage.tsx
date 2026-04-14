@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProctoring } from '../hooks/useProctoring';
 import { useExamStore } from '../store/examStore';
 import { RichTextRenderer } from '../components/RichTextRenderer';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 const EXAM_RUNTIME_KEY = 'exam.runtime.v1';
@@ -144,6 +145,17 @@ export function ExamPage({ onLogout }: ExamPageProps) {
     setActiveQuestionId: setStoreActiveQuestionId,
     completeExam,
   } = useExamStore();
+
+  type ModalState = {
+    title: string;
+    message: string;
+    variant?: 'info' | 'warning' | 'danger';
+    confirmLabel?: string;
+    onConfirm?: () => void;
+  };
+
+  const [confirmModal, setConfirmModal] = useState<ModalState | null>(null);
+  const closeConfirmModal = () => setConfirmModal(null);
 
   const [resultLoading, setResultLoading] = useState(false);
   const [earlyNextLoading, setEarlyNextLoading] = useState(false);
@@ -906,7 +918,11 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       doc.save(`hasil-snbt-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch {
       // Keep UX stable when PDF library fails in runtime.
-      window.alert('Gagal membuat PDF hasil. Silakan coba lagi.');
+      setConfirmModal({
+        title: 'Gagal Membuat PDF',
+        message: 'Terjadi kesalahan saat membuat PDF hasil. Silakan coba lagi.',
+        variant: 'warning',
+      });
     } finally {
       setPdfLoading(false);
     }
@@ -1034,16 +1050,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
     });
   };
 
-  const handleSubmitFinal = async () => {
-    if (!sessionId || resultLoading || isCompleted) {
-      return;
-    }
-
-    const confirmed = window.confirm('Yakin ingin menyelesaikan ujian sekarang? Sesi akan langsung diakhiri.');
-    if (!confirmed) {
-      return;
-    }
-
+  const doSubmitFinal = async () => {
     setResultLoading(true);
     await fetch(`${API_BASE}/exam/submit-final`, {
       method: 'POST',
@@ -1070,16 +1077,24 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       });
   };
 
-  const handleCompleteSectionEarly = async () => {
-    if (!sessionId || isCompleted || resultLoading || earlyNextLoading || preparingSectionOrder != null) {
+  const handleSubmitFinal = async () => {
+    if (!sessionId || resultLoading || isCompleted) {
       return;
     }
 
-    const confirmed = window.confirm('Yakin ingin mengakhiri subtes ini lebih cepat dan lanjut ke subtes berikutnya?');
-    if (!confirmed) {
-      return;
-    }
+    setConfirmModal({
+      title: 'Selesaikan Ujian?',
+      message: 'Yakin ingin menyelesaikan ujian sekarang? Sesi akan langsung diakhiri dan tidak bisa dibuka kembali.',
+      variant: 'warning',
+      confirmLabel: 'Ya, Selesaikan',
+      onConfirm: () => {
+        closeConfirmModal();
+        void doSubmitFinal();
+      },
+    });
+  };
 
+  const doCompleteSectionEarly = async () => {
     setEarlyNextLoading(true);
     await fetch(`${API_BASE}/exam/complete-section-early`, {
       method: 'POST',
@@ -1094,7 +1109,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       })
       .then((payload) => {
         if (payload.isFinished) {
-          void handleSubmitFinal();
+          void doSubmitFinal();
           return;
         }
 
@@ -1107,11 +1122,32 @@ export function ExamPage({ onLogout }: ExamPageProps) {
         }
       })
       .catch(() => {
-        window.alert('Gagal menyelesaikan subtes lebih awal. Silakan coba lagi.');
+        setConfirmModal({
+          title: 'Gagal Pindah Subtes',
+          message: 'Terjadi kesalahan saat menyelesaikan subtes lebih awal. Silakan coba lagi.',
+          variant: 'warning',
+        });
       })
       .finally(() => {
         setEarlyNextLoading(false);
       });
+  };
+
+  const handleCompleteSectionEarly = async () => {
+    if (!sessionId || isCompleted || resultLoading || earlyNextLoading || preparingSectionOrder != null) {
+      return;
+    }
+
+    setConfirmModal({
+      title: 'Akhiri Subtes Lebih Awal?',
+      message: 'Yakin ingin mengakhiri subtes ini lebih cepat dan lanjut ke subtes berikutnya? Jawaban yang sudah diisi tetap tersimpan.',
+      variant: 'warning',
+      confirmLabel: 'Ya, Lanjutkan',
+      onConfirm: () => {
+        closeConfirmModal();
+        void doCompleteSectionEarly();
+      },
+    });
   };
 
   const handleGetAiInsight = async () => {
@@ -1143,11 +1179,16 @@ export function ExamPage({ onLogout }: ExamPageProps) {
   };
 
   const confirmLogout = () => {
-    const confirmed = window.confirm('Yakin ingin keluar dari akun ini?');
-    if (!confirmed) {
-      return;
-    }
-    onLogout();
+    setConfirmModal({
+      title: 'Keluar dari Akun?',
+      message: 'Yakin ingin keluar dari akun ini? Progres ujian yang sedang berjalan akan tetap tersimpan.',
+      variant: 'warning',
+      confirmLabel: 'Ya, Keluar',
+      onConfirm: () => {
+        closeConfirmModal();
+        onLogout();
+      },
+    });
   };
 
   if (isCompleted && scoreSummary) {
@@ -1506,18 +1547,34 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
       {proctoringDialog ? (
         <div className="proctoring-overlay fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 p-4">
-          <section className="proctoring-panel w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
-            <h2 className="text-base font-semibold text-slate-900">{proctoringDialog.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-slate-700">{proctoringDialog.message}</p>
-            <button
-              type="button"
-              className="mt-4 w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-              onClick={closeDialog}
-            >
-              Mengerti
-            </button>
+          <section className="proctoring-panel w-full max-w-sm rounded-2xl border border-rose-200 bg-white p-5 shadow-xl sm:max-w-md">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-100 text-base font-bold text-rose-700" aria-hidden="true">⚠</span>
+              <h2 className="mt-1 text-base font-semibold leading-snug text-slate-900">{proctoringDialog.title}</h2>
+            </div>
+            <p className="mb-5 whitespace-pre-line pl-12 text-sm leading-relaxed text-slate-600">{proctoringDialog.message}</p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                onClick={closeDialog}
+              >
+                Mengerti
+              </button>
+            </div>
           </section>
         </div>
+      ) : null}
+
+      {confirmModal ? (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          variant={confirmModal.variant}
+          confirmLabel={confirmModal.confirmLabel}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={closeConfirmModal}
+        />
       ) : null}
 
       {preparingSectionOrder != null ? (
@@ -1540,7 +1597,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
           <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
             <div className="rounded-lg bg-teal-50 p-2 font-semibold text-accent">Sisa Waktu Section: {formatTime(activeSectionRemaining)}</div>
-            <div className="rounded-lg bg-amber-50 p-2 font-semibold text-warning">Peringatan Anti-Cheat: {warningCount}/3</div>
+            <div className="rounded-lg bg-amber-50 p-2 font-semibold text-warning">Peringatan Anti-Cheat: {warningCount}/6</div>
             <div className="rounded-lg bg-rose-50 p-2 font-semibold text-danger">{isForceSubmitting || isForceSubmitted ? 'Sedang force submit...' : 'Status: Aktif'}</div>
           </div>
         </header>

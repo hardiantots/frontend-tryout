@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { logout, tryRefreshSession } from '../auth/api';
 import { getSession } from '../auth/session';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { RichTextRenderer } from '../components/RichTextRenderer';
 import { showToast, ToastContainer } from '../components/Toast';
 
@@ -236,6 +237,16 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   const [reorderDirty, setReorderDirty] = useState(false);
   const [reorderSaving, setReorderSaving] = useState(false);
 
+  type AdminModalState = {
+    title: string;
+    message: string;
+    variant?: 'info' | 'warning' | 'danger';
+    confirmLabel?: string;
+    onConfirm?: () => void;
+  };
+  const [confirmModal, setConfirmModal] = useState<AdminModalState | null>(null);
+  const closeConfirmModal = useCallback(() => setConfirmModal(null), []);
+
   const roleModes = useMemo(() => {
     const normalized = roles.map((role) => role.toUpperCase());
     return normalized.filter((role) => role === 'MASTER_ADMIN' || role === 'ADMIN');
@@ -469,13 +480,18 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
     });
   }, [canAuthorQuestions, activeWorkspaceTab, questionSubTestId, questionPage]);
 
-  const handleLogout = async () => {
-    const confirmed = window.confirm('Yakin ingin keluar dari akun admin ini?');
-    if (!confirmed) {
-      return;
-    }
-    await logout();
-    onLogout();
+  const handleLogout = () => {
+    setConfirmModal({
+      title: 'Keluar dari Panel Admin?',
+      message: 'Yakin ingin keluar dari akun admin ini?',
+      variant: 'warning',
+      confirmLabel: 'Ya, Keluar',
+      onConfirm: async () => {
+        closeConfirmModal();
+        await logout();
+        onLogout();
+      },
+    });
   };
 
   const runAction = async (runner: () => Promise<void>) => {
@@ -559,37 +575,37 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   };
 
   const submitDeleteUser = () => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat menghapus akun.');
-      }
-
-      if (!targetUserId) {
-        throw new Error('Pilih akun target yang akan dihapus.');
-      }
-
-      const confirmation = window.confirm(
-        `Hapus akun ${selectedTargetUserName || targetUserId} secara permanen? Tindakan ini tidak dapat dibatalkan.`,
-      );
-      if (!confirmation) {
-        return;
-      }
-
-      const payload = await callApi('/admin/access/delete-user', {
-        method: 'POST',
-        body: JSON.stringify({
-          targetUserId,
-          reason: roleReason || 'Akun dihapus oleh master admin.',
-        }),
-      });
-
-      setResultText(JSON.stringify(payload, null, 2));
-      setSuccessMessage('Akun berhasil dihapus secara permanen.');
-
-      setTargetUserId('');
-      setSelectedTargetUserName('');
-      setEffectiveUserId('');
-      await loadManagedUsers();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat menghapus akun.');
+      return;
+    }
+    if (!targetUserId) {
+      showToast('error', 'Pilih akun target yang akan dihapus.');
+      return;
+    }
+    setConfirmModal({
+      title: 'Hapus Akun Secara Permanen?',
+      message: `Hapus akun ${selectedTargetUserName || targetUserId} secara permanen? Tindakan ini tidak dapat dibatalkan.`,
+      variant: 'danger',
+      confirmLabel: 'Hapus Permanen',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          const payload = await callApi('/admin/access/delete-user', {
+            method: 'POST',
+            body: JSON.stringify({
+              targetUserId,
+              reason: roleReason || 'Akun dihapus oleh master admin.',
+            }),
+          });
+          setResultText(JSON.stringify(payload, null, 2));
+          setSuccessMessage('Akun berhasil dihapus secara permanen.');
+          setTargetUserId('');
+          setSelectedTargetUserName('');
+          setEffectiveUserId('');
+          await loadManagedUsers();
+        });
+      },
     });
   };
 
@@ -618,101 +634,87 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   };
 
   const submitBulkDeleteUsers = () => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat menghapus akun secara massal.');
-      }
-
-      if (!selectedUserIds.length) {
-        throw new Error('Pilih minimal 1 akun untuk dihapus.');
-      }
-
-      const confirmation = window.confirm(`Hapus ${selectedUserIds.length} akun terpilih secara permanen?`);
-      if (!confirmation) {
-        return;
-      }
-
-      let success = 0;
-      const failed: string[] = [];
-      for (const userId of selectedUserIds) {
-        try {
-          await callApi('/admin/access/delete-user', {
-            method: 'POST',
-            body: JSON.stringify({
-              targetUserId: userId,
-              reason: roleReason || 'Bulk delete oleh master admin.',
-            }),
-          });
-          success += 1;
-        } catch (error) {
-          failed.push(`${userId}: ${(error as Error).message}`);
-        }
-      }
-
-      setResultText(
-        JSON.stringify(
-          {
-            action: 'bulk-delete-users',
-            success,
-            failed,
-          },
-          null,
-          2,
-        ),
-      );
-      setSuccessMessage(`Bulk delete user selesai. Berhasil: ${success}, Gagal: ${failed.length}.`);
-      setSelectedUserIds([]);
-      await loadManagedUsers();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat menghapus akun secara massal.');
+      return;
+    }
+    if (!selectedUserIds.length) {
+      showToast('error', 'Pilih minimal 1 akun untuk dihapus.');
+      return;
+    }
+    setConfirmModal({
+      title: `Hapus ${selectedUserIds.length} Akun Secara Permanen?`,
+      message: `Tindakan ini akan menghapus ${selectedUserIds.length} akun terpilih secara permanen dan tidak dapat dibatalkan.`,
+      variant: 'danger',
+      confirmLabel: 'Hapus Semua',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          let success = 0;
+          const failed: string[] = [];
+          for (const userId of selectedUserIds) {
+            try {
+              await callApi('/admin/access/delete-user', {
+                method: 'POST',
+                body: JSON.stringify({
+                  targetUserId: userId,
+                  reason: roleReason || 'Bulk delete oleh master admin.',
+                }),
+              });
+              success += 1;
+            } catch (error) {
+              failed.push(`${userId}: ${(error as Error).message}`);
+            }
+          }
+          setResultText(JSON.stringify({ action: 'bulk-delete-users', success, failed }, null, 2));
+          setSuccessMessage(`Bulk delete user selesai. Berhasil: ${success}, Gagal: ${failed.length}.`);
+          setSelectedUserIds([]);
+          await loadManagedUsers();
+        });
+      },
     });
   };
 
   const submitBulkDisableTokens = () => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat menonaktifkan token secara massal.');
-      }
-
-      const tokenTargets = participantTokens.filter((item) => selectedTokenIds.includes(item.id) && !item.revokedAt);
-      if (!tokenTargets.length) {
-        throw new Error('Pilih minimal 1 token aktif untuk dinonaktifkan.');
-      }
-
-      const confirmation = window.confirm(`Nonaktifkan ${tokenTargets.length} token participant terpilih?`);
-      if (!confirmation) {
-        return;
-      }
-
-      let success = 0;
-      const failed: string[] = [];
-      for (const token of tokenTargets) {
-        try {
-          await callApi('/admin/access/participant-tokens/delete', {
-            method: 'POST',
-            body: JSON.stringify({
-              tokenId: token.id,
-              reason: 'Bulk nonaktifkan token dari dasbor admin.',
-            }),
-          });
-          success += 1;
-        } catch (error) {
-          failed.push(`${token.tokenKey}: ${(error as Error).message}`);
-        }
-      }
-
-      setResultText(
-        JSON.stringify(
-          {
-            action: 'bulk-disable-tokens',
-            success,
-            failed,
-          },
-          null,
-          2,
-        ),
-      );
-      setSuccessMessage(`Bulk nonaktifkan token selesai. Berhasil: ${success}, Gagal: ${failed.length}.`);
-      setSelectedTokenIds([]);
-      await loadParticipantTokens();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat menonaktifkan token secara massal.');
+      return;
+    }
+    const tokenTargets = participantTokens.filter((item) => selectedTokenIds.includes(item.id) && !item.revokedAt);
+    if (!tokenTargets.length) {
+      showToast('error', 'Pilih minimal 1 token aktif untuk dinonaktifkan.');
+      return;
+    }
+    setConfirmModal({
+      title: `Nonaktifkan ${tokenTargets.length} Token?`,
+      message: `Ini akan menonaktifkan ${tokenTargets.length} token participant terpilih. Peserta dengan token tersebut tidak dapat login baru.`,
+      variant: 'warning',
+      confirmLabel: 'Nonaktifkan Semua',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          let success = 0;
+          const failed: string[] = [];
+          for (const token of tokenTargets) {
+            try {
+              await callApi('/admin/access/participant-tokens/delete', {
+                method: 'POST',
+                body: JSON.stringify({
+                  tokenId: token.id,
+                  reason: 'Bulk nonaktifkan token dari dasbor admin.',
+                }),
+              });
+              success += 1;
+            } catch (error) {
+              failed.push(`${token.tokenKey}: ${(error as Error).message}`);
+            }
+          }
+          setResultText(JSON.stringify({ action: 'bulk-disable-tokens', success, failed }, null, 2));
+          setSuccessMessage(`Bulk nonaktifkan token selesai. Berhasil: ${success}, Gagal: ${failed.length}.`);
+          setSelectedTokenIds([]);
+          await loadParticipantTokens();
+        });
+      },
     });
   };
 
@@ -1031,30 +1033,31 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   };
 
   const handleDeleteQuestion = (questionId: string) => {
-    void runAction(async () => {
-      if (!questionSubTestId) {
-        throw new Error('Sub-tes belum dipilih.');
-      }
-
-      const ok = window.confirm('Yakin ingin menghapus soal ini? Soal akan disembunyikan dari peserta.');
-      if (!ok) {
-        return;
-      }
-
-      const response = await callApi('/admin/questions/delete', {
-        method: 'POST',
-        body: JSON.stringify({ questionId }),
-      });
-
-      setResultText(JSON.stringify(response, null, 2));
-      showToast('success', 'Soal berhasil dihapus dari daftar aktif.');
-
-      if (editingQuestionId === questionId) {
-        resetQuestionForm();
-      }
-
-      const nextPage = Math.min(questionPage, questionTotalPages);
-      await loadQuestionBank(questionSubTestId, nextPage);
+    if (!questionSubTestId) {
+      showToast('error', 'Sub-tes belum dipilih.');
+      return;
+    }
+    setConfirmModal({
+      title: 'Hapus Soal Ini?',
+      message: 'Soal akan disembunyikan dari peserta ujian. Tindakan ini dapat dibatalkan dari database jika diperlukan.',
+      variant: 'danger',
+      confirmLabel: 'Ya, Hapus',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          const response = await callApi('/admin/questions/delete', {
+            method: 'POST',
+            body: JSON.stringify({ questionId }),
+          });
+          setResultText(JSON.stringify(response, null, 2));
+          showToast('success', 'Soal berhasil dihapus dari daftar aktif.');
+          if (editingQuestionId === questionId) {
+            resetQuestionForm();
+          }
+          const nextPage = Math.min(questionPage, questionTotalPages);
+          await loadQuestionBank(questionSubTestId, nextPage);
+        });
+      },
     });
   };
 
@@ -1141,78 +1144,94 @@ export function AdminHomePage({ roles, onLogout }: AdminHomePageProps) {
   };
 
   const handleDeleteParticipantToken = (tokenId: string, tokenKey: string) => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat menonaktifkan token participant.');
-      }
-
-      const ok = window.confirm(`Nonaktifkan token ${tokenKey}?`);
-      if (!ok) {
-        return;
-      }
-
-      const response = await callApi('/admin/access/participant-tokens/delete', {
-        method: 'POST',
-        body: JSON.stringify({
-          tokenId,
-          reason: 'Token dinonaktifkan dari panel admin.',
-        }),
-      });
-
-      setResultText(JSON.stringify(response, null, 2));
-      showToast('success', 'Token participant berhasil dinonaktifkan.');
-      await loadParticipantTokens();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat menonaktifkan token participant.');
+      return;
+    }
+    setConfirmModal({
+      title: `Nonaktifkan Token?`,
+      message: `Nonaktifkan token: ${tokenKey}\n\nPeserta dengan token ini tidak dapat melanjutkan ujian.`,
+      variant: 'warning',
+      confirmLabel: 'Nonaktifkan',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          const response = await callApi('/admin/access/participant-tokens/delete', {
+            method: 'POST',
+            body: JSON.stringify({ tokenId, reason: 'Token dinonaktifkan dari panel admin.' }),
+          });
+          setResultText(JSON.stringify(response, null, 2));
+          showToast('success', 'Token participant berhasil dinonaktifkan.');
+          await loadParticipantTokens();
+        });
+      },
     });
   };
 
   const handleRegenerateParticipantToken = (tokenKey: string) => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat regenerate token participant.');
-      }
-
-      const ok = window.confirm(`Regenerate token penuh untuk key ${tokenKey}?`);
-      if (!ok) {
-        return;
-      }
-
-      const response = await callApi('/admin/access/participant-tokens/regenerate', {
-        method: 'POST',
-        body: JSON.stringify({ tokenKey }),
-      });
-
-      setLastGeneratedToken(response?.token ?? null);
-      setResultText(JSON.stringify(response, null, 2));
-      showToast('success', 'Token participant berhasil diregenerate.');
-      await loadParticipantTokens();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat regenerate token participant.');
+      return;
+    }
+    setConfirmModal({
+      title: 'Regenerate Token?',
+      message: `Regenerate token penuh untuk key: ${tokenKey}\n\nToken lama akan tidak berlaku, dan token baru akan dihasilkan.`,
+      variant: 'warning',
+      confirmLabel: 'Ya, Regenerate',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          const response = await callApi('/admin/access/participant-tokens/regenerate', {
+            method: 'POST',
+            body: JSON.stringify({ tokenKey }),
+          });
+          setLastGeneratedToken(response?.token ?? null);
+          setResultText(JSON.stringify(response, null, 2));
+          showToast('success', 'Token participant berhasil diregenerate.');
+          await loadParticipantTokens();
+        });
+      },
     });
   };
 
   const handleResetAntiCheat = (tokenKey: string) => {
-    void runAction(async () => {
-      if (!isMasterAdmin) {
-        throw new Error('Hanya master admin yang dapat mereset anti-cheat.');
-      }
-
-      const ok = window.confirm(
-        `Reset anti-cheat untuk token ${tokenKey}?\n\nIni akan:\n• Reset jumlah pelanggaran ke 0\n• Reset login count ke 1\n• Mengembalikan session yang force-submitted ke IN_PROGRESS\n• Reset timer sub-tes aktif\n\nPeserta dapat login kembali dan melanjutkan ujian.`,
-      );
-      if (!ok) return;
-
-      const response = await callApi('/admin/access/reset-anti-cheat', {
-        method: 'POST',
-        body: JSON.stringify({ tokenKey, reason: 'Reset anti-cheat oleh master admin dari panel.' }),
-      });
-
-      setResultText(JSON.stringify(response, null, 2));
-      showToast('success', `Anti-cheat untuk token ${tokenKey} berhasil direset. Peserta dapat melanjutkan ujian.`);
-      await loadParticipantTokens();
+    if (!isMasterAdmin) {
+      showToast('error', 'Hanya master admin yang dapat mereset anti-cheat.');
+      return;
+    }
+    setConfirmModal({
+      title: 'Reset Anti-Cheat?',
+      message: `Reset anti-cheat untuk token: ${tokenKey}\n\nIni akan:\n• Reset jumlah pelanggaran ke 0\n• Reset login count ke 1\n• Mengembalikan session yang force-submitted ke IN_PROGRESS\n• Reset timer sub-tes aktif\n\nPeserta dapat login kembali dan melanjutkan ujian.`,
+      variant: 'warning',
+      confirmLabel: 'Ya, Reset',
+      onConfirm: () => {
+        closeConfirmModal();
+        void runAction(async () => {
+          const response = await callApi('/admin/access/reset-anti-cheat', {
+            method: 'POST',
+            body: JSON.stringify({ tokenKey, reason: 'Reset anti-cheat oleh master admin dari panel.' }),
+          });
+          setResultText(JSON.stringify(response, null, 2));
+          showToast('success', `Anti-cheat untuk token ${tokenKey} berhasil direset. Peserta dapat melanjutkan ujian.`);
+          await loadParticipantTokens();
+        });
+      },
     });
   };
 
   return (
     <main className="app-shell p-4 sm:p-6">
       <ToastContainer />
+      {confirmModal ? (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          variant={confirmModal.variant}
+          confirmLabel={confirmModal.confirmLabel}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={closeConfirmModal}
+        />
+      ) : null}
       <header className="sticky top-0 z-40 mb-4 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm backdrop-blur">
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">

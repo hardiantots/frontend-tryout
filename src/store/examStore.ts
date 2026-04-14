@@ -37,6 +37,8 @@ type ReviewItem = {
   materialTopic?: string | null;
   questionText: string;
   answerFormat: string;
+  imageUrl?: string | null;
+  imageUrls?: string[];
   userAnswer: string;
   correctAnswer: string;
   isCorrect: boolean | null;
