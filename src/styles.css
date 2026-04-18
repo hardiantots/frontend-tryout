@@ -297,3 +297,71 @@ aside[class*='bg-white'] {
     box-shadow: 0 7px 20px rgba(15, 23, 42, 0.08);
   }
 }
+
+/* ── Exam image thumbnails ── */
+.exam-img-thumb {
+  cursor: zoom-in;
+  display: block;
+  height: 160px;
+  width: auto;
+  max-width: 100%;
+  min-width: 120px;
+  flex: 0 1 auto;
+}
+
+@media (min-width: 480px) {
+  .exam-img-thumb {
+    height: 200px;
+  }
+}
+
+@media (min-width: 768px) {
+  .exam-img-thumb {
+    height: 220px;
+  }
+}
+
+.exam-img-thumb-img {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* ── Lightbox overlay ── */
+@keyframes lightbox-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes lightbox-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lightbox-overlay {
+  animation: lightbox-overlay-in 180ms ease-out;
+  overscroll-behavior: contain;
+}
+
+.lightbox-panel {
+  animation: lightbox-panel-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lightbox-overlay,
+  .lightbox-panel {
+    animation: none;
+  }
+}

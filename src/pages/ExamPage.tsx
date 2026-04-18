@@ -45,69 +45,49 @@ function formatTime(seconds: number): string {
   return `${mm}:${ss}`;
 }
 
-function normalizeInsightText(raw: string): string {
-  return raw
-    .replace(/\r/g, '')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
-    .replace(/\|/g, ' ')
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/^>\s?/gm, '')
-    .replace(/^---+$/gm, '')
-    .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, '')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/__(.*?)__/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/_(.*?)_/g, '$1')
-    .replace(/~~(.*?)~~/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\\([*_`#\-])/g, '$1')
-    .replace(/^[-*]\s+/gm, '• ')
-    .replace(/^\d+[.)]\s+/gm, '• ')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function normalizePlainText(raw: string): string {
-  return normalizeInsightText(raw)
-    .replace(/\n{2,}/g, '\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
-function renderInsightBlocks(text: string) {
-  const blocks = normalizeInsightText(text)
-    .split(/\n\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  return blocks.map((block, blockIndex) => {
-    const lines = block
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const bulletLines = lines.filter((line) => line.startsWith('•'));
-
-    if (bulletLines.length >= 1) {
-      const lead = lines.find((line) => !line.startsWith('•'));
-      return (
-        <div key={`insight-block-${blockIndex}`} className="space-y-1">
-          {lead ? <p className="text-sm text-slate-700">{lead}</p> : null}
-          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
-            {bulletLines.map((line, lineIndex) => (
-              <li key={`insight-bullet-${blockIndex}-${lineIndex}`}>{line.replace(/^•\s*/, '')}</li>
-            ))}
-          </ul>
-        </div>
-      );
-    }
-
-    return (
-      <p key={`insight-block-${blockIndex}`} className="text-sm text-slate-700">
-        {block}
-      </p>
-    );
-  });
+/**
+ * Strips Markdown / LaTeX syntax so jsPDF can print clean plain text.
+ * Preserves newlines so splitTextToSize can wrap lines properly.
+ */
+function stripMarkdownForPdf(raw: string): string {
+  return (
+    raw
+      // CRLF -> LF
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      // Remove inline LaTeX: $...$ and $$...$$
+      .replace(/\$\$([\s\S]*?)\$\$/g, '[rumus]')
+      .replace(/\$([^$\n]+)\$/g, '[rumus]')
+      // Remove \( ... \) and \[ ... \]
+      .replace(/\\\([\s\S]*?\\\)/g, '[rumus]')
+      .replace(/\\\[[\s\S]*?\\\]/g, '[rumus]')
+      // Remove Markdown headings but keep their text
+      .replace(/^#{1,6}\s+(.+)$/gm, '$1')
+      // Remove blockquotes
+      .replace(/^>\s?/gm, '')
+      // Remove horizontal rules
+      .replace(/^---+$/gm, '')
+      // Unwrap bold and italic
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/_(.*?)_/g, '$1')
+      // Remove strikethrough
+      .replace(/~~(.*?)~~/g, '$1')
+      // Remove inline code
+      .replace(/`([^`]+)`/g, '$1')
+      // Remove link markup but keep text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Remove pipe (table artifacts)
+      .replace(/\|/g, ' ')
+      // Remove emoji
+      .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, '')
+      // Normalise multiple spaces on same line (don't collapse newlines)
+      .replace(/[ \t]{2,}/g, ' ')
+      // Collapse 3+ blank lines to 2
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 type LocalAnswerState = {
@@ -155,6 +135,10 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
   const [confirmModal, setConfirmModal] = useState<ModalState | null>(null);
   const closeConfirmModal = () => setConfirmModal(null);
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const openLightbox = (src: string) => setLightboxSrc(src);
+  const closeLightbox = () => setLightboxSrc(null);
 
   const [resultLoading, setResultLoading] = useState(false);
   const [earlyNextLoading, setEarlyNextLoading] = useState(false);
@@ -747,6 +731,15 @@ export function ExamPage({ onLogout }: ExamPageProps) {
   }, []);
 
   useEffect(() => {
+    if (!lightboxSrc) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeLightbox();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [lightboxSrc]);
+
+  useEffect(() => {
     if (!isCompleted || !scoreSummary) {
       return;
     }
@@ -856,12 +849,28 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       doc.setFontSize(12);
       doc.text('2) Rekomendasi AI', marginX, aiStart);
 
-      const aiText = normalizePlainText(aiInsight ?? 'Belum ada rekomendasi AI yang tersimpan.');
-      const aiLines = doc.splitTextToSize(aiText, 740);
+      const aiRaw = aiInsight ?? 'Belum ada rekomendasi AI yang tersimpan.';
+      const aiText = stripMarkdownForPdf(aiRaw);
+      // splitTextToSize wraps long lines; each \n becomes a new entry
+      const aiLines = aiText
+        .split('\n')
+        .flatMap((line) => (line.trim() === '' ? [''] : doc.splitTextToSize(line.trim(), 740) as string[]));
       doc.setFontSize(10);
-      doc.text(aiLines, marginX, aiStart + 16);
+      let aiY = aiStart + 16;
+      for (const line of aiLines) {
+        if (aiY > 540) {
+          doc.addPage();
+          aiY = 40;
+        }
+        if (line.trim() === '') {
+          aiY += 6; // blank line spacing
+        } else {
+          doc.text(line, marginX, aiY);
+          aiY += 14;
+        }
+      }
 
-      const weakStart = aiStart + 16 + aiLines.length * 12 + 16;
+      const weakStart = aiY + 10;
       doc.setFontSize(12);
       doc.text('3) Materi Sub-Tes Yang Masih Lemah', marginX, weakStart);
 
@@ -882,36 +891,76 @@ export function ExamPage({ onLogout }: ExamPageProps) {
         styles: { fontSize: 9, cellPadding: 4 },
       });
 
-      const reviewStart = ((doc as any).lastAutoTable?.finalY ?? weakStart + 80) + 18;
-      doc.setFontSize(12);
-      doc.text('4) Pembahasan Tiap Soal', marginX, reviewStart);
+      // ── 4) Pembahasan Tiap Soal — format uraian (per soal, bukan tabel) ──
+      const pgWidth = doc.internal.pageSize.getWidth();
+      const contentWidth = pgWidth - marginX * 2;
+      doc.addPage();
+      let curY = 40;
 
-      const reviewRows = reviewItems.map((item, idx) => [
-        `${idx + 1}`,
-        `${item.subTestName}`,
-        item.materialTopic ?? '-',
-        item.isCorrect == null ? 'Belum dijawab' : item.isCorrect ? 'Benar' : 'Salah',
-        normalizePlainText(item.correctAnswer),
-        normalizePlainText(item.userAnswer),
-        normalizePlainText(item.questionText),
-        normalizePlainText(item.discussion || '-'),
-      ]);
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.text('4) Pembahasan Tiap Soal', marginX, curY);
+      doc.setFont('helvetica', 'normal');
+      curY += 20;
 
-      autoTable(doc, {
-        startY: reviewStart + 8,
-        head: [['No', 'Sub-Tes', 'Materi', 'Status', 'Jawaban Benar', 'Jawaban Peserta', 'Soal', 'Pembahasan']],
-        body: reviewRows,
-        styles: { fontSize: 8, cellPadding: 3, valign: 'top' },
-        columnStyles: {
-          0: { cellWidth: 24 },
-          1: { cellWidth: 90 },
-          2: { cellWidth: 80 },
-          3: { cellWidth: 70 },
-          4: { cellWidth: 80 },
-          5: { cellWidth: 85 },
-          6: { cellWidth: 145 },
-          7: { cellWidth: 140 },
-        },
+      const printWrapped = (label: string, value: string, y: number, bold = false): number => {
+        const text = stripMarkdownForPdf(value || '-');
+        const lines = text
+          .split('\n')
+          .flatMap((ln) => (ln.trim() === '' ? [''] : (doc.splitTextToSize(ln.trim(), contentWidth - 10) as string[])));
+
+        if (bold) doc.setFont('helvetica', 'bold');
+        doc.text(label, marginX, y);
+        if (bold) doc.setFont('helvetica', 'normal');
+        let lineY = y;
+        for (const ln of lines) {
+          if (lineY > 545) {
+            doc.addPage();
+            lineY = 40;
+          }
+          if (ln.trim() === '') {
+            lineY += 5;
+          } else {
+            doc.text(ln, marginX + 8, lineY);
+            lineY += 13;
+          }
+        }
+        return lineY + 4;
+      };
+
+      reviewItems.forEach((item, idx) => {
+        const status = item.isCorrect == null ? 'Belum Dijawab' : item.isCorrect ? 'Benar ✓' : 'Salah ✗';
+
+        if (curY > 510) {
+          doc.addPage();
+          curY = 40;
+        }
+
+        // Header soal
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(
+          `Soal ${idx + 1}  |  ${item.subTestName}  |  ${item.materialTopic ?? '-'}  |  ${status}`,
+          marginX,
+          curY,
+        );
+        doc.setFont('helvetica', 'normal');
+        curY += 14;
+
+        // Garis pemisah header
+        doc.setDrawColor(180, 180, 180);
+        doc.line(marginX, curY, marginX + contentWidth, curY);
+        curY += 8;
+
+        doc.setFontSize(9);
+        curY = printWrapped('Teks Soal:', item.questionText, curY);
+        curY = printWrapped('Jawaban Anda:', item.userAnswer, curY);
+        curY = printWrapped('Jawaban Benar:', item.correctAnswer, curY);
+        if (item.discussion) {
+          curY = printWrapped('Pembahasan:', item.discussion, curY);
+        }
+
+        curY += 10; // jarak antar soal
       });
 
       doc.save(`hasil-snbt-${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -1193,6 +1242,37 @@ export function ExamPage({ onLogout }: ExamPageProps) {
   if (isCompleted && scoreSummary) {
     return (
       <main className="app-shell px-2 py-3 sm:px-3 md:px-4 lg:px-6 lg:py-6">
+        {/* ── Lightbox / Image Popup (review mode) ── */}
+        {lightboxSrc ? (
+          <div
+            className="lightbox-overlay fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/80 p-3"
+            onClick={closeLightbox}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tampilan gambar diperbesar"
+          >
+            <div
+              className="lightbox-panel relative flex max-h-[92dvh] max-w-[96vw] flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="absolute -top-3 -right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg hover:bg-white"
+                onClick={closeLightbox}
+                aria-label="Tutup gambar"
+              >
+                ✕
+              </button>
+              <img
+                src={lightboxSrc}
+                alt="Tampilan gambar diperbesar"
+                className="max-h-[88dvh] max-w-full rounded-xl object-contain shadow-2xl"
+                draggable={false}
+              />
+              <p className="mt-2 text-xs text-white/70">Klik di luar atau tekan Esc untuk menutup</p>
+            </div>
+          </div>
+        ) : null}
         {confirmModal ? (
           <ConfirmModal
             title={confirmModal.title}
@@ -1234,7 +1314,11 @@ export function ExamPage({ onLogout }: ExamPageProps) {
             >
               {pdfLoading ? 'Menyiapkan PDF...' : 'Unduh PDF Hasil Akhir'}
             </button>
-            {aiInsight ? <div className="mt-2 space-y-2 rounded-lg bg-white p-3">{renderInsightBlocks(aiInsight)}</div> : null}
+            {aiInsight ? (
+              <div className="mt-3 rounded-lg bg-white p-3">
+                <RichTextRenderer content={aiInsight} />
+              </div>
+            ) : null}
           </header>
 
           <section className="motion-once-delay-2 mb-4 rounded-xl border border-slate-200 bg-slate-50 p-2">
@@ -1341,15 +1425,23 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                     
                     {/* Render Image before Question Text */}
                     {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).length ? (
-                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         {(item.imageUrls?.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).map((imgUrl, imgIndex) => (
-                          <img
+                          <button
                             key={`${item.attemptId}-img-${imgIndex}`}
-                            src={imgUrl}
-                            alt={`Soal gambar ${imgIndex + 1}`}
-                            className="w-full rounded-md border border-slate-200 object-cover"
-                            loading="lazy"
-                          />
+                            type="button"
+                            className="exam-img-thumb group relative overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                            onClick={() => openLightbox(imgUrl)}
+                            aria-label={`Perbesar gambar ${imgIndex + 1}`}
+                          >
+                            <img
+                              src={imgUrl}
+                              alt={`Soal gambar ${imgIndex + 1}`}
+                              className="exam-img-thumb-img block h-full w-full object-contain transition-transform duration-200 group-hover:scale-105"
+                              loading="lazy"
+                            />
+                            <span className="exam-img-zoom-hint absolute inset-0 flex items-center justify-center rounded-md bg-slate-900/0 text-sm font-semibold text-white opacity-0 transition-all duration-200 group-hover:bg-slate-900/30 group-hover:opacity-100" aria-hidden="true">🔍 Perbesar</span>
+                          </button>
                         ))}
                       </div>
                     ) : null}
@@ -1415,6 +1507,37 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
   return (
     <main className="app-shell px-2 py-3 sm:px-3 md:px-4 lg:px-6 lg:py-6">
+      {/* ── Lightbox / Image Popup ── */}
+      {lightboxSrc ? (
+        <div
+          className="lightbox-overlay fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/80 p-3"
+          onClick={closeLightbox}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Tampilan gambar diperbesar"
+        >
+          <div
+            className="lightbox-panel relative flex max-h-[92dvh] max-w-[96vw] flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="absolute -top-3 -right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-lg hover:bg-white"
+              onClick={closeLightbox}
+              aria-label="Tutup gambar"
+            >
+              ✕
+            </button>
+            <img
+              src={lightboxSrc}
+              alt="Tampilan gambar diperbesar"
+              className="max-h-[88dvh] max-w-full rounded-xl object-contain shadow-2xl"
+              draggable={false}
+            />
+            <p className="mt-2 text-xs text-white/70">Klik di luar atau tekan Esc untuk menutup</p>
+          </div>
+        </div>
+      ) : null}
       {!sessionId && !resumeLoading ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/45 p-4">
           <section className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
@@ -1655,15 +1778,23 @@ export function ExamPage({ onLogout }: ExamPageProps) {
                   ) : null}
                   {/* Tampilkan gambar soal terlebih dahulu sesuai request urutan */}
                   {(activeQuestion.imageUrls?.length ? activeQuestion.imageUrls : (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).length ? (
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="mt-2 flex flex-wrap gap-2">
                       {(activeQuestion.imageUrls?.length ? activeQuestion.imageUrls : (activeQuestion.imageUrl ? [activeQuestion.imageUrl] : [])).map((imageUrl, imageIndex) => (
-                        <img
+                        <button
                           key={`${activeQuestion.id}-img-${imageIndex}`}
-                          src={imageUrl}
-                          alt={`Soal gambar ${imageIndex + 1}`}
-                          className="w-full rounded-md border border-slate-200 object-cover"
-                          loading="lazy"
-                        />
+                          type="button"
+                          className="exam-img-thumb group relative overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                          onClick={() => openLightbox(imageUrl)}
+                          aria-label={`Perbesar gambar ${imageIndex + 1}`}
+                        >
+                          <img
+                            src={imageUrl}
+                            alt={`Soal gambar ${imageIndex + 1}`}
+                            className="exam-img-thumb-img block h-full w-full object-contain transition-transform duration-200 group-hover:scale-105"
+                            loading="lazy"
+                          />
+                          <span className="exam-img-zoom-hint absolute inset-0 flex items-center justify-center rounded-md bg-slate-900/0 text-sm font-semibold text-white opacity-0 transition-all duration-200 group-hover:bg-slate-900/30 group-hover:opacity-100" aria-hidden="true">🔍 Perbesar</span>
+                        </button>
                       ))}
                     </div>
                   ) : null}
