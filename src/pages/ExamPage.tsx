@@ -1727,16 +1727,23 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       ) : null}
 
       <section className="motion-once w-full rounded-2xl border border-slate-200 bg-white/85 p-2 shadow-sm backdrop-blur sm:p-3 md:p-4">
-        <header className="sticky top-0 z-10 mb-3 grid gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 sm:p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-base font-semibold text-slate-900 sm:text-lg">Try Out SNBT 2026</h1>
-            <p className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 sm:text-sm">{subtitle}</p>
+        <header className="static lg:sticky lg:top-[76px] z-10 mb-3 grid gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 sm:p-3 md:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-1 sm:gap-2">
+            <h1 className="text-sm font-semibold text-slate-900 sm:text-base lg:text-lg">Try Out SNBT 2026</h1>
+            <p className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 sm:px-3 sm:py-1 sm:text-xs lg:text-sm">{subtitle}</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
-            <div className="rounded-lg bg-teal-50 p-2 font-semibold text-accent">Sisa Waktu Section: {formatTime(activeSectionRemaining)}</div>
-            <div className="rounded-lg bg-amber-50 p-2 font-semibold text-warning">Peringatan Anti-Cheat: {warningCount}/6</div>
-            <div className="rounded-lg bg-rose-50 p-2 font-semibold text-danger">{isForceSubmitting || isForceSubmitted ? 'Sedang force submit...' : 'Status: Aktif'}</div>
+          <div className="grid grid-cols-3 gap-1.5 text-[10px] leading-tight sm:grid-cols-3 sm:gap-2 sm:text-sm">
+            <div className="flex flex-col items-center justify-center rounded-md bg-teal-50 p-1.5 text-center font-semibold text-accent sm:flex-row sm:justify-start sm:gap-1 sm:rounded-lg sm:p-2">
+              <span>Sisa Waktu:</span>
+              <span>{formatTime(activeSectionRemaining)}</span>
+            </div>
+            <div className="flex flex-col items-center justify-center rounded-md bg-amber-50 p-1.5 text-center font-semibold text-warning sm:flex-row sm:justify-start sm:gap-1 sm:rounded-lg sm:p-2">
+              <span className="hidden sm:inline">Peringatan</span> Anti-Cheat: <span>{warningCount}/6</span>
+            </div>
+            <div className="flex flex-col items-center justify-center rounded-md bg-rose-50 p-1.5 text-center font-semibold text-danger sm:flex-row sm:justify-start sm:gap-1 sm:rounded-lg sm:p-2">
+              {isForceSubmitting || isForceSubmitted ? 'Sedang force submit...' : <>Status: <span>Aktif</span></>}
+            </div>
           </div>
         </header>
 
