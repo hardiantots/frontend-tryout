@@ -52,15 +52,19 @@ function formatTime(seconds: number): string {
 function stripMarkdownForPdf(raw: string): string {
   return (
     raw
+      // Convert common HTML block/line tags to newlines
+      .replace(/<\/?(p|div|br|li|h[1-6])[^>]*>/gi, '\n')
+      // Remove all other HTML tags
+      .replace(/<[^>]+>/g, ' ')
       // CRLF -> LF
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
-      // Remove inline LaTeX: $...$ and $$...$$
-      .replace(/\$\$([\s\S]*?)\$\$/g, '[rumus]')
-      .replace(/\$([^$\n]+)\$/g, '[rumus]')
-      // Remove \( ... \) and \[ ... \]
-      .replace(/\\\([\s\S]*?\\\)/g, '[rumus]')
-      .replace(/\\\[[\s\S]*?\\\]/g, '[rumus]')
+      // Keep inline LaTeX but remove the wrappers so formulas are readable text
+      .replace(/\$\$([\s\S]*?)\$\$/g, ' $1 ')
+      .replace(/\$([^$\n]+)\$/g, ' $1 ')
+      // Keep \( ... \) and \[ ... \]
+      .replace(/\\\(([\s\S]*?)\\\)/g, ' $1 ')
+      .replace(/\\\[([\s\S]*?)\\\]/g, ' $1 ')
       // Remove Markdown headings but keep their text
       .replace(/^#{1,6}\s+(.+)$/gm, '$1')
       // Remove blockquotes
@@ -80,6 +84,13 @@ function stripMarkdownForPdf(raw: string): string {
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       // Remove pipe (table artifacts)
       .replace(/\|/g, ' ')
+      // Decode minimal HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
       // Remove emoji
       .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, '')
       // Normalise multiple spaces on same line (don't collapse newlines)
