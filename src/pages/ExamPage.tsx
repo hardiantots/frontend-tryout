@@ -862,26 +862,31 @@ export function ExamPage({ onLogout }: ExamPageProps) {
 
       const aiRaw = aiInsight ?? 'Belum ada rekomendasi AI yang tersimpan.';
       const aiText = stripMarkdownForPdf(aiRaw);
-      // splitTextToSize wraps long lines; each \n becomes a new entry
+      // splitTextToSize wraps long lines; we also trim to avoid weird spacing
       const aiLines = aiText
         .split('\n')
-        .flatMap((line) => (line.trim() === '' ? [''] : doc.splitTextToSize(line.trim(), 740) as string[]));
+        .flatMap((line) => {
+          if (line.trim() === '') return [''];
+          const wrapped = doc.splitTextToSize(line.trim(), 740) as string[];
+          return wrapped.map((l) => l.trim());
+        });
+        
       doc.setFontSize(10);
-      let aiY = aiStart + 16;
+      let aiY = aiStart + 20;
       for (const line of aiLines) {
         if (aiY > 540) {
           doc.addPage();
           aiY = 40;
         }
         if (line.trim() === '') {
-          aiY += 6; // blank line spacing
+          aiY += 8; // blank line spacing
         } else {
           doc.text(line, marginX, aiY);
-          aiY += 14;
+          aiY += 16;
         }
       }
 
-      const weakStart = aiY + 10;
+      const weakStart = aiY + 14;
       doc.setFontSize(12);
       doc.text('3) Materi Sub-Tes Yang Masih Lemah', marginX, weakStart);
 
@@ -896,7 +901,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
         : [['-', 'Belum ada data materi lemah', '-', '-', '-']];
 
       autoTable(doc, {
-        startY: weakStart + 10,
+        startY: weakStart + 14,
         head: [['Sub-Tes', 'Materi', 'Salah', 'Dijawab', 'Akurasi']],
         body: weakRows,
         styles: { fontSize: 9, cellPadding: 4 },
@@ -905,65 +910,78 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       // ── 4) Pembahasan Tiap Soal — format uraian (per soal, bukan tabel) ──
       const pgWidth = doc.internal.pageSize.getWidth();
       const contentWidth = pgWidth - marginX * 2;
-      doc.addPage();
-      let curY = 40;
+      
+      let curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 30 : weakStart + 50;
+      if (curY > 500) {
+        doc.addPage();
+        curY = 40;
+      }
 
       doc.setFontSize(13);
       doc.setFont('helvetica', 'bold');
       doc.text('4) Pembahasan Tiap Soal', marginX, curY);
       doc.setFont('helvetica', 'normal');
-      curY += 20;
+      curY += 24;
 
       const printWrapped = (label: string, value: string, y: number, bold = false): number => {
         const text = stripMarkdownForPdf(value || '-');
-        const lines = text
-          .split('\n')
-          .flatMap((ln) => (ln.trim() === '' ? [''] : (doc.splitTextToSize(ln.trim(), contentWidth - 10) as string[])));
+        let lineY = y;
 
         if (bold) doc.setFont('helvetica', 'bold');
-        doc.text(label, marginX, y);
+        doc.text(label, marginX, lineY);
         if (bold) doc.setFont('helvetica', 'normal');
-        let lineY = y;
+        
+        // Pindahkan baris ke bawah label supaya tidak berantakan/overlap
+        lineY += 16;
+
+        const lines = text
+          .split('\n')
+          .flatMap((ln) => {
+            if (ln.trim() === '') return [''];
+            const wrapped = doc.splitTextToSize(ln.trim(), contentWidth - 20) as string[];
+            return wrapped.map((l) => l.trim());
+          });
+
         for (const ln of lines) {
           if (lineY > 545) {
             doc.addPage();
             lineY = 40;
           }
           if (ln.trim() === '') {
-            lineY += 5;
+            lineY += 8;
           } else {
-            doc.text(ln, marginX + 8, lineY);
-            lineY += 13;
+            doc.text(ln, marginX + 10, lineY);
+            lineY += 16;
           }
         }
-        return lineY + 4;
+        return lineY + 6;
       };
 
       reviewItems.forEach((item, idx) => {
         const status = item.isCorrect == null ? 'Belum Dijawab' : item.isCorrect ? 'Benar ✓' : 'Salah ✗';
 
-        if (curY > 510) {
+        if (curY > 480) {
           doc.addPage();
           curY = 40;
         }
 
         // Header soal
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(11);
         doc.text(
           `Soal ${idx + 1}  |  ${item.subTestName}  |  ${item.materialTopic ?? '-'}  |  ${status}`,
           marginX,
           curY,
         );
         doc.setFont('helvetica', 'normal');
-        curY += 14;
+        curY += 16;
 
         // Garis pemisah header
         doc.setDrawColor(180, 180, 180);
         doc.line(marginX, curY, marginX + contentWidth, curY);
-        curY += 8;
+        curY += 12;
 
-        doc.setFontSize(9);
+        doc.setFontSize(10);
         curY = printWrapped('Teks Soal:', item.questionText, curY);
         curY = printWrapped('Jawaban Anda:', item.userAnswer, curY);
         curY = printWrapped('Jawaban Benar:', item.correctAnswer, curY);
@@ -971,7 +989,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
           curY = printWrapped('Pembahasan:', item.discussion, curY);
         }
 
-        curY += 10; // jarak antar soal
+        curY += 14; // jarak ekstra antar soal
       });
 
       doc.save(`hasil-snbt-${new Date().toISOString().slice(0, 10)}.pdf`);
