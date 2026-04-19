@@ -802,9 +802,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
       return [];
     }
 
-    const base = selectedSubTestCode
-      ? scoreSummary.weakMaterials.filter((item) => item.subTestCode === selectedSubTestCode)
-      : scoreSummary.weakMaterials;
+    const base = scoreSummary.weakMaterials;
 
     return [...base]
       .sort((a, b) => {
@@ -814,7 +812,7 @@ export function ExamPage({ onLogout }: ExamPageProps) {
         return a.accuracy - b.accuracy;
       })
       .slice(0, 10);
-  }, [scoreSummary, selectedSubTestCode]);
+  }, [scoreSummary]);
 
   const handleDownloadResultPdf = async () => {
     if (!scoreSummary || !isCompleted || pdfLoading) {
